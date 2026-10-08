@@ -95,6 +95,9 @@ type HostInfo struct {
 	OS     string `json:"os"`
 	User   string `json:"user"`
 	Home   string `json:"home"`
+	// Portable tells a machine with a battery, as a laptop, where the
+	// model does not.
+	Portable bool `json:"portable,omitempty"`
 }
 
 // Attach is the first line of a connection attaching to a session.
@@ -126,5 +129,9 @@ func SocketPath() string {
 	}
 	h := fnv.New32a()
 	h.Write([]byte(p))
-	return filepath.Join(os.TempDir(), fmt.Sprintf("gorex-%d-%x.sock", os.Getuid(), h.Sum32()))
+	name := fmt.Sprintf("gorex-%x.sock", h.Sum32())
+	if uid := os.Getuid(); uid >= 0 { // Windows has none, and a temporary directory per user
+		name = fmt.Sprintf("gorex-%d-%x.sock", uid, h.Sum32())
+	}
+	return filepath.Join(os.TempDir(), name)
 }

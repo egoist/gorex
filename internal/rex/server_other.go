@@ -1,10 +1,10 @@
-//go:build !darwin && !linux
+//go:build !darwin && !linux && !windows
 
 package rex
 
 import "errors"
 
-var errUnsupported = errors.New("rex: the session server runs on macOS and Linux")
+var errUnsupported = errors.New("rex: the session server runs on macOS, Linux and Windows")
 
 // Serve runs the server; not on this platform.
 func Serve() error { return errUnsupported }

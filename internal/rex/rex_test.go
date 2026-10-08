@@ -1,4 +1,4 @@
-//go:build darwin || linux
+//go:build darwin || linux || windows
 
 package rex
 
@@ -6,13 +6,23 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestServer(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "rex")
+	// A short path, for the socket: macOS's temporary directory is long.
+	base, shell, work := "/tmp", "/bin/sh", "/tmp"
+	// The command prints "hello" without the line typed showing it, and
+	// runs a program for a while.
+	typed, sleeper := "echo he''llo; sleep 1\n", "sleep"
+	if runtime.GOOS == "windows" {
+		base, shell, work = "", "cmd.exe", os.TempDir()
+		typed, sleeper = "echo he^llo & ping -n 3 127.0.0.1 >nul\r", "ping"
+	}
+	dir, err := os.MkdirTemp(base, "rex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,13 +46,13 @@ func TestServer(t *testing.T) {
 		t.Fatalf("hello %+v %v", h, err)
 	}
 	t.Logf("host %+v", h.Host)
-	info, err := c.Create(CreateOptions{Command: []string{"/bin/sh"}, Dir: "/tmp", Cols: 80, Rows: 24})
+	info, err := c.Create(CreateOptions{Command: []string{shell}, Dir: work, Cols: 80, Rows: 24})
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := c.Stream(info.ID, 80, 24)
 	s.Resize(100, 30)
-	s.Write([]byte("echo he''llo; sleep 1\n"))
+	s.Write([]byte(typed))
 	var out bytes.Buffer
 	buf := make([]byte, 4096)
 	deadline := time.Now().Add(5 * time.Second)
@@ -63,10 +73,10 @@ func TestServer(t *testing.T) {
 	}
 	in := list[0]
 	t.Logf("info %+v", in)
-	if in.Program != "sleep" || in.Idle || in.Cols != 100 {
+	if !strings.EqualFold(in.Program, sleeper) || in.Idle || in.Cols != 100 {
 		t.Errorf("info %+v", in)
 	}
-	if !strings.HasSuffix(in.Dir, "/tmp") {
+	if !strings.HasSuffix(strings.ToLower(in.Dir), strings.ToLower(work)) {
 		t.Errorf("dir %q", in.Dir)
 	}
 	s.Close()

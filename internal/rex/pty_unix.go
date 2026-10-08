@@ -50,6 +50,29 @@ func startPTY(path string, argv []string, dir string, env []string, cols, rows i
 	return &pty{master: master, cmd: cmd}, nil
 }
 
+func (p *pty) read(b []byte) (int, error)  { return p.master.Read(b) }
+func (p *pty) write(b []byte) (int, error) { return p.master.Write(b) }
+
+// close closes the terminal's master: read ends, once it read what the
+// terminal had.
+func (p *pty) close() error { return p.master.Close() }
+
+func (p *pty) resize(cols, rows int) error { return setSize(p.master, cols, rows) }
+
+func (p *pty) pid() int {
+	if p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
+
+// kill kills the process group of the session's process.
+func (p *pty) kill() {
+	if pid := p.pid(); pid > 0 {
+		syscall.Kill(-pid, syscall.SIGKILL)
+	}
+}
+
 func setSize(f *os.File, cols, rows int) error {
 	ws := &unix.Winsize{Col: uint16(clamp(cols)), Row: uint16(clamp(rows))}
 	return unix.IoctlSetWinsize(int(f.Fd()), unix.TIOCSWINSZ, ws)

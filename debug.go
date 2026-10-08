@@ -65,7 +65,7 @@ func (a *App) debug(dir, line string) {
 			win.SetSize(w, h)
 		}
 	default:
-		for _, cmd := range append(paletteCommands, &cmdPalette, &cmdClear) {
+		for _, cmd := range commands {
 			if strings.EqualFold(strings.ReplaceAll(cmd.Title, " ", "-"), verb) {
 				a.run(cmd)
 			}

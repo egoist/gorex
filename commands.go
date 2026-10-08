@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -13,38 +15,43 @@ type command struct {
 	Title string
 	// Accel is the menu item's shortcut, and Keys how the palette shows it.
 	Accel, Keys string
-	Run         func(a *App)
+	// Other is the shortcut elsewhere than on macOS, which gives Accel and
+	// Keys there: Control and a letter are the terminal's, so Shift comes
+	// with it, as when copying and pasting; Alt and Control-Alt make
+	// characters (AltGr), and Alt and a letter open the menus on Windows.
+	Other shortcut
+	Run   func(a *App)
 	// Hidden keeps it out of the palette.
 	Hidden bool
 }
 
 var (
-	cmdNewTab      = command{Title: "New Tab", Accel: "CmdOrCtrl+T", Keys: "⌘T", Run: func(a *App) { a.newTab(a.currentDir()) }}
-	cmdSplitRight  = command{Title: "Split Right", Accel: "CmdOrCtrl+D", Keys: "⌘D", Run: func(a *App) { a.split(false) }}
-	cmdSplitDown   = command{Title: "Split Down", Accel: "CmdOrCtrl+Shift+D", Keys: "⇧⌘D", Run: func(a *App) { a.split(true) }}
-	cmdClosePane   = command{Title: "Close Pane", Accel: "CmdOrCtrl+W", Keys: "⌘W", Run: func(a *App) { a.closeFocused() }}
+	cmdNewTab      = command{Title: "New Tab", Accel: "CmdOrCtrl+T", Keys: "⌘T", Other: ctrlShift(ui.KeyT), Run: func(a *App) { a.newTab(a.currentDir()) }}
+	cmdSplitRight  = command{Title: "Split Right", Accel: "CmdOrCtrl+D", Keys: "⌘D", Other: ctrlShift(ui.KeyD), Run: func(a *App) { a.split(false) }}
+	cmdSplitDown   = command{Title: "Split Down", Accel: "CmdOrCtrl+Shift+D", Keys: "⇧⌘D", Other: ctrlShift(ui.KeyE), Run: func(a *App) { a.split(true) }}
+	cmdClosePane   = command{Title: "Close Pane", Accel: "CmdOrCtrl+W", Keys: "⌘W", Other: ctrlShift(ui.KeyW), Run: func(a *App) { a.closeFocused() }}
 	cmdCloseTab    = command{Title: "Close Tab", Accel: "CmdOrCtrl+Shift+W", Keys: "⇧⌘W", Run: func(a *App) { a.closeActiveTab() }}
-	cmdZoom        = command{Title: "Zoom Pane", Accel: "CmdOrCtrl+Shift+Enter", Keys: "⇧⌘↩", Run: func(a *App) { a.toggleZoom() }}
+	cmdZoom        = command{Title: "Zoom Pane", Accel: "CmdOrCtrl+Shift+Enter", Keys: "⇧⌘↩", Other: ctrlShift(ui.KeyEnter), Run: func(a *App) { a.toggleZoom() }}
 	cmdEqualize    = command{Title: "Equalize Panes", Accel: "CmdOrCtrl+Ctrl+=", Keys: "⌃⌘=", Run: func(a *App) { a.equalize() }}
-	cmdNextTab     = command{Title: "Next Tab", Accel: "CmdOrCtrl+Shift+]", Keys: "⇧⌘]", Run: func(a *App) { a.cycleTab(1) }}
-	cmdPrevTab     = command{Title: "Previous Tab", Accel: "CmdOrCtrl+Shift+[", Keys: "⇧⌘[", Run: func(a *App) { a.cycleTab(-1) }}
-	cmdRenameTab   = command{Title: "Rename Tab…", Accel: "CmdOrCtrl+Shift+R", Keys: "⇧⌘R", Run: func(a *App) { a.startRename() }}
-	cmdPalette     = command{Title: "Command Palette…", Accel: "CmdOrCtrl+Shift+P", Keys: "⇧⌘P", Run: func(a *App) { a.openPalette() }, Hidden: true}
+	cmdNextTab     = command{Title: "Next Tab", Accel: "CmdOrCtrl+Shift+]", Keys: "⇧⌘]", Other: shortcut{ui.Ctrl, ui.KeyPageDown}, Run: func(a *App) { a.cycleTab(1) }}
+	cmdPrevTab     = command{Title: "Previous Tab", Accel: "CmdOrCtrl+Shift+[", Keys: "⇧⌘[", Other: shortcut{ui.Ctrl, ui.KeyPageUp}, Run: func(a *App) { a.cycleTab(-1) }}
+	cmdRenameTab   = command{Title: "Rename Tab…", Accel: "CmdOrCtrl+Shift+R", Keys: "⇧⌘R", Other: ctrlShift(ui.KeyR), Run: func(a *App) { a.startRename() }}
+	cmdPalette     = command{Title: "Command Palette…", Accel: "CmdOrCtrl+Shift+P", Keys: "⇧⌘P", Other: ctrlShift(ui.KeyP), Run: func(a *App) { a.openPalette() }, Hidden: true}
 	cmdPalette2    = command{Title: "Go to Pane…", Accel: "CmdOrCtrl+P", Keys: "⌘P", Run: func(a *App) { a.openPalette() }, Hidden: true}
-	cmdFocusLeft   = command{Title: "Focus Pane Left", Accel: "CmdOrCtrl+Alt+Left", Keys: "⌥⌘←", Run: func(a *App) { a.moveFocus(-1, 0) }}
-	cmdFocusRight  = command{Title: "Focus Pane Right", Accel: "CmdOrCtrl+Alt+Right", Keys: "⌥⌘→", Run: func(a *App) { a.moveFocus(1, 0) }}
-	cmdFocusUp     = command{Title: "Focus Pane Above", Accel: "CmdOrCtrl+Alt+Up", Keys: "⌥⌘↑", Run: func(a *App) { a.moveFocus(0, -1) }}
-	cmdFocusDown   = command{Title: "Focus Pane Below", Accel: "CmdOrCtrl+Alt+Down", Keys: "⌥⌘↓", Run: func(a *App) { a.moveFocus(0, 1) }}
-	cmdGrowLeft    = command{Title: "Move Divider Left", Accel: "CmdOrCtrl+Ctrl+Left", Keys: "⌃⌘←", Run: func(a *App) { a.resizeFocused(-1, 0) }}
-	cmdGrowRight   = command{Title: "Move Divider Right", Accel: "CmdOrCtrl+Ctrl+Right", Keys: "⌃⌘→", Run: func(a *App) { a.resizeFocused(1, 0) }}
-	cmdGrowUp      = command{Title: "Move Divider Up", Accel: "CmdOrCtrl+Ctrl+Up", Keys: "⌃⌘↑", Run: func(a *App) { a.resizeFocused(0, -1) }}
-	cmdGrowDown    = command{Title: "Move Divider Down", Accel: "CmdOrCtrl+Ctrl+Down", Keys: "⌃⌘↓", Run: func(a *App) { a.resizeFocused(0, 1) }}
-	cmdClear       = command{Title: "Clear Screen and Scrollback", Accel: "CmdOrCtrl+K", Keys: "⌘K", Run: func(a *App) { a.clearFocused() }, Hidden: true}
+	cmdFocusLeft   = command{Title: "Focus Pane Left", Accel: "CmdOrCtrl+Alt+Left", Keys: "⌥⌘←", Other: shortcut{ui.Alt, ui.KeyLeft}, Run: func(a *App) { a.moveFocus(-1, 0) }}
+	cmdFocusRight  = command{Title: "Focus Pane Right", Accel: "CmdOrCtrl+Alt+Right", Keys: "⌥⌘→", Other: shortcut{ui.Alt, ui.KeyRight}, Run: func(a *App) { a.moveFocus(1, 0) }}
+	cmdFocusUp     = command{Title: "Focus Pane Above", Accel: "CmdOrCtrl+Alt+Up", Keys: "⌥⌘↑", Other: shortcut{ui.Alt, ui.KeyUp}, Run: func(a *App) { a.moveFocus(0, -1) }}
+	cmdFocusDown   = command{Title: "Focus Pane Below", Accel: "CmdOrCtrl+Alt+Down", Keys: "⌥⌘↓", Other: shortcut{ui.Alt, ui.KeyDown}, Run: func(a *App) { a.moveFocus(0, 1) }}
+	cmdGrowLeft    = command{Title: "Move Divider Left", Accel: "CmdOrCtrl+Ctrl+Left", Keys: "⌃⌘←", Other: shortcut{ui.Alt | ui.Shift, ui.KeyLeft}, Run: func(a *App) { a.resizeFocused(-1, 0) }}
+	cmdGrowRight   = command{Title: "Move Divider Right", Accel: "CmdOrCtrl+Ctrl+Right", Keys: "⌃⌘→", Other: shortcut{ui.Alt | ui.Shift, ui.KeyRight}, Run: func(a *App) { a.resizeFocused(1, 0) }}
+	cmdGrowUp      = command{Title: "Move Divider Up", Accel: "CmdOrCtrl+Ctrl+Up", Keys: "⌃⌘↑", Other: shortcut{ui.Alt | ui.Shift, ui.KeyUp}, Run: func(a *App) { a.resizeFocused(0, -1) }}
+	cmdGrowDown    = command{Title: "Move Divider Down", Accel: "CmdOrCtrl+Ctrl+Down", Keys: "⌃⌘↓", Other: shortcut{ui.Alt | ui.Shift, ui.KeyDown}, Run: func(a *App) { a.resizeFocused(0, 1) }}
+	cmdClear       = command{Title: "Clear Screen and Scrollback", Accel: "CmdOrCtrl+K", Keys: "⌘K", Other: ctrlShift(ui.KeyK), Run: func(a *App) { a.clearFocused() }, Hidden: true}
 	cmdClearScroll = command{Title: "Clear Scrollback", Run: func(a *App) { a.clearFocused() }}
 	cmdRestart     = command{Title: "Restart Shell in Pane", Run: func(a *App) { a.restartFocused() }}
-	cmdBigger      = command{Title: "Bigger Text", Accel: "CmdOrCtrl+=", Keys: "⌘+", Run: func(a *App) { a.setFontSize(termFont.Size + 1) }}
-	cmdSmaller     = command{Title: "Smaller Text", Accel: "CmdOrCtrl+-", Keys: "⌘−", Run: func(a *App) { a.setFontSize(termFont.Size - 1) }}
-	cmdActualSize  = command{Title: "Actual Size", Accel: "CmdOrCtrl+0", Keys: "⌘0", Run: func(a *App) { a.setFontSize(defaultFontSize) }}
+	cmdBigger      = command{Title: "Bigger Text", Accel: "CmdOrCtrl+=", Keys: "⌘+", Other: shortcut{ui.Ctrl, ui.KeyEqual}, Run: func(a *App) { a.setFontSize(termFont.Size + 1) }}
+	cmdSmaller     = command{Title: "Smaller Text", Accel: "CmdOrCtrl+-", Keys: "⌘−", Other: shortcut{ui.Ctrl, ui.KeyMinus}, Run: func(a *App) { a.setFontSize(termFont.Size - 1) }}
+	cmdActualSize  = command{Title: "Actual Size", Accel: "CmdOrCtrl+0", Keys: "⌘0", Other: shortcut{ui.Ctrl, ui.Key0}, Run: func(a *App) { a.setFontSize(defaultFontSize) }}
 	cmdLight       = command{Title: "Appearance: Light", Run: func(a *App) { a.setAppearance("light") }}
 	cmdDark        = command{Title: "Appearance: Dark", Run: func(a *App) { a.setAppearance("dark") }}
 	cmdSystem      = command{Title: "Appearance: System", Run: func(a *App) { a.setAppearance("") }}
@@ -61,6 +68,61 @@ var paletteCommands = []*command{
 	&cmdClearScroll, &cmdRestart, &cmdEndAll,
 }
 
+// commands are all of them.
+var commands = append(slices.Clone(paletteCommands), &cmdPalette, &cmdPalette2, &cmdClear)
+
+func init() {
+	if runtime.GOOS == "darwin" {
+		return
+	}
+	for _, cmd := range commands {
+		cmd.Accel, cmd.Keys = "", ""
+		if cmd.Other != (shortcut{}) {
+			cmd.Accel = cmd.Other.String()
+			cmd.Keys = cmd.Accel
+		}
+	}
+}
+
+// shortcut is a key with modifiers, elsewhere than on macOS.
+type shortcut struct {
+	Mods ui.Modifiers
+	Key  ui.Key
+}
+
+func ctrlShift(k ui.Key) shortcut { return shortcut{ui.Ctrl | ui.Shift, k} }
+
+// showTabKey is the shortcut of the nth tab, from 1 to 9.
+func showTabKey(n int) shortcut { return ctrlShift(ui.Key0 + ui.Key(n)) }
+
+// String writes the shortcut as menus take it, and as Windows shows it:
+// "Ctrl+Shift+T".
+func (s shortcut) String() string {
+	var parts []string
+	for _, m := range []struct {
+		mod  ui.Modifiers
+		name string
+	}{{ui.Ctrl, "Ctrl"}, {ui.Alt, "Alt"}, {ui.Shift, "Shift"}} {
+		if s.Mods&m.mod != 0 {
+			parts = append(parts, m.name)
+		}
+	}
+	var key string
+	switch k := s.Key; {
+	case k >= ui.KeyA && k <= ui.KeyZ:
+		key = string(rune('A' + k - ui.KeyA))
+	case k >= ui.Key0 && k <= ui.Key9:
+		key = string(rune('0' + k - ui.Key0))
+	default:
+		key = map[ui.Key]string{
+			ui.KeyEnter: "Enter", ui.KeyPageUp: "PageUp", ui.KeyPageDown: "PageDown",
+			ui.KeyLeft: "Left", ui.KeyRight: "Right", ui.KeyUp: "Up", ui.KeyDown: "Down",
+			ui.KeyEqual: "=", ui.KeyMinus: "-",
+		}[k]
+	}
+	return strings.Join(append(parts, key), "+")
+}
+
 // menu builds the menu bar, whose items run commands in the window.
 func (a *App) menu() *mygo.Menu {
 	item := func(cmd *command) *mygo.MenuItem {
@@ -71,16 +133,14 @@ func (a *App) menu() *mygo.Menu {
 	tabItems := []*mygo.MenuItem{item(&cmdNextTab), item(&cmdPrevTab), mygo.Separator()}
 	for i := 1; i <= 9; i++ {
 		i := i
+		accel := fmt.Sprintf("CmdOrCtrl+%d", i)
+		if runtime.GOOS != "darwin" {
+			accel = showTabKey(i).String()
+		}
 		tabItems = append(tabItems, &mygo.MenuItem{
-			Label: fmt.Sprintf("Show Tab %d", i), Accelerator: fmt.Sprintf("CmdOrCtrl+%d", i),
+			Label: fmt.Sprintf("Show Tab %d", i), Accelerator: accel,
 			Click: func(*mygo.MenuItem, *mygo.Window) {
-				a.do(func() {
-					if i == 9 {
-						a.selectTab(len(a.tabs) - 1)
-					} else {
-						a.selectTab(i - 1)
-					}
-				})
+				a.do(func() { a.showTab(i) })
 			},
 		})
 	}
@@ -177,6 +237,15 @@ func (a *App) closeActiveTab() {
 	}
 }
 
+// showTab shows the nth tab, from 1; 9 is the last.
+func (a *App) showTab(n int) {
+	if n == 9 {
+		a.selectTab(len(a.tabs) - 1)
+	} else {
+		a.selectTab(n - 1)
+	}
+}
+
 func (a *App) cycleTab(d int) {
 	if n := len(a.tabs); n > 1 {
 		a.selectTab(((a.active+d)%n + n) % n)
@@ -249,14 +318,28 @@ func (a *App) openPalette() {
 	a.focusReq = nil // the palette takes the focus
 }
 
-// shortcuts handles the keys the menus do not: Escape out of a zoomed
-// pane, and Control-Tab between tabs.
+// shortcuts handles the keys the menus do not: Control-Tab between tabs,
+// and on Windows, where windows of native UI run no menu shortcuts, those
+// of the commands. The window's shortcuts come before the terminal's keys.
 func (a *App) shortcuts(c *ui.Context) {
 	if c.Shortcut(ui.Ctrl, ui.KeyTab) {
 		a.cycleTab(1)
 	}
 	if c.Shortcut(ui.Ctrl|ui.Shift, ui.KeyTab) {
 		a.cycleTab(-1)
+	}
+	if runtime.GOOS != "windows" {
+		return
+	}
+	for _, cmd := range commands {
+		if cmd.Other != (shortcut{}) && c.Shortcut(cmd.Other.Mods, cmd.Other.Key) {
+			a.later(c, func() { cmd.Run(a) })
+		}
+	}
+	for i := 1; i <= 9; i++ {
+		if k := showTabKey(i); c.Shortcut(k.Mods, k.Key) {
+			a.later(c, func() { a.showTab(i) })
+		}
 	}
 }
 

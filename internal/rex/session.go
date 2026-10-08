@@ -1,4 +1,4 @@
-//go:build darwin || linux
+//go:build darwin || linux || windows
 
 package rex
 
@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
@@ -120,7 +119,7 @@ func newSession(id string, o CreateOptions) (*session, error) {
 		select {
 		case <-read:
 		case <-time.After(150 * time.Millisecond):
-			p.master.Close()
+			p.close()
 			<-read
 		}
 		s.mu.Lock()
@@ -173,7 +172,7 @@ func sessionEnv(id string, extra []string) []string {
 func (s *session) read() {
 	buf := make([]byte, 64<<10)
 	for {
-		n, err := s.p.master.Read(buf)
+		n, err := s.p.read(buf)
 		if n > 0 {
 			data := append([]byte(nil), buf[:n]...)
 			s.mu.Lock()
@@ -248,7 +247,7 @@ func (s *session) input(p []byte) {
 	exited := s.exited
 	s.mu.Unlock()
 	if !exited {
-		s.p.master.Write(p)
+		s.p.write(p)
 	}
 }
 
@@ -270,7 +269,7 @@ func (s *session) resize(cols, rows int) bool {
 	}
 	s.mu.Unlock()
 	if changed && !exited {
-		setSize(s.p.master, cols, rows)
+		s.p.resize(cols, rows)
 	}
 	return changed
 }
@@ -316,9 +315,7 @@ func (s *session) kill() {
 	select {
 	case <-s.done:
 	case <-time.After(time.Second):
-		if pr := s.p.cmd.Process; pr != nil {
-			syscall.Kill(-pr.Pid, syscall.SIGKILL)
-		}
+		s.p.kill()
 	}
 }
 
@@ -332,9 +329,7 @@ func (s *session) info() SessionInfo {
 		Attached: len(s.clients), Cols: s.cols, Rows: s.rows,
 	}
 	s.mu.Unlock()
-	if s.p.cmd.Process != nil {
-		in.PID = s.p.cmd.Process.Pid
-	}
+	in.PID = s.p.pid()
 	if in.Exited {
 		return in
 	}

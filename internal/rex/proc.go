@@ -23,7 +23,11 @@ var interpreters = map[string]bool{
 func (p procInfo) programName() string {
 	name := strings.TrimPrefix(p.name, "-")
 	if len(p.args) > 0 {
-		if base := strings.TrimPrefix(filepath.Base(p.args[0]), "-"); base != "" && len(base) > len(name) && strings.HasPrefix(base, name) {
+		base := strings.TrimPrefix(filepath.Base(p.args[0]), "-")
+		if ext := filepath.Ext(base); strings.EqualFold(ext, ".exe") {
+			base = strings.TrimSuffix(base, ext)
+		}
+		if base != "" && len(base) > len(name) && strings.HasPrefix(base, name) {
 			// p_comm is cut at 16 bytes.
 			name = base
 		}
@@ -37,8 +41,10 @@ func (p procInfo) programName() string {
 			if ext := filepath.Ext(script); ext == ".js" || ext == ".mjs" || ext == ".cjs" || ext == ".ts" || ext == ".py" || ext == ".rb" {
 				script = strings.TrimSuffix(script, ext)
 			}
+			// npm runs …\npm\bin\npm-cli.js where no link names it npm.
+			script = strings.TrimSuffix(script, "-cli")
 			// node …/bin/codex.js; but node demo/snake.mjs stays node.
-			if strings.Contains(a, "/bin/") || strings.Contains(a, "node_modules") {
+			if strings.Contains(filepath.ToSlash(a), "/bin/") || strings.Contains(a, "node_modules") {
 				return script
 			}
 			break

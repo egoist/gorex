@@ -89,7 +89,7 @@ func (a *App) open() {
 		a.err = "The session server is of another version of GoRex: quit and end all sessions to restart it."
 	}
 	a.reset()
-	win := mygo.NewWindow(mygo.WindowOptions{
+	opts := mygo.WindowOptions{
 		Title:                "GoRex",
 		Width:                1000,
 		Height:               620,
@@ -100,7 +100,12 @@ func (a *App) open() {
 		TrafficLightPosition: &mygo.Point{X: 16, Y: 15},
 		BackgroundColor:      "light-dark(#efe1e6, #231e27)",
 		Content:              ui.View(a.view),
-	})
+	}
+	if ownControls {
+		// The title bar draws the window's controls (windowControls).
+		opts.TitleBarStyle, opts.Frameless = mygo.TitleBarDefault, true
+	}
+	win := mygo.NewWindow(opts)
 	a.win = win
 	if !a.restore() {
 		home, _ := os.UserHomeDir()

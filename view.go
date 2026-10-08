@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"strings"
 	"time"
 
@@ -49,13 +50,17 @@ func (a *App) view(c *ui.Context) {
 	}
 }
 
+// ownControls tells that the title bar draws the window's controls: on
+// Windows, whose own would look like none of the rest of it.
+var ownControls = runtime.GOOS == "windows"
+
 // titleBar draws the title bar under the window's controls: the host,
 // the tabs, and the buttons of the command palette and a new tab.
 func (a *App) titleBar(c *ui.Context, k *colors) {
 	bar := c.TitleBar()
 	left := bar.Left
 	if left == 0 {
-		left = 12 // in full screen
+		left = 12 // in full screen, or beside no controls
 	} else {
 		left += 14
 	}
@@ -66,14 +71,71 @@ func (a *App) titleBar(c *ui.Context, k *colors) {
 		// window, and a double click on which zooms it.
 		ui.Spacer(c).MinWidth(titleFree - 14)
 		ui.Row(c).Gap(2).AlignItems(ui.Center).Shrink(0).Children(func() {
-			if iconButton(c, k, "command", "Command Palette", 30, 17).Tooltip("Command Palette  ⇧⌘P").Clicked() {
+			if iconButton(c, k, "command", "Command Palette", 30, 17).Tooltip(tip("Command Palette", &cmdPalette)).Clicked() {
 				a.openPalette()
 			}
-			if iconButton(c, k, "plus", "New Tab", 30, 19).Tooltip("New Tab  ⌘T").Clicked() {
+			if iconButton(c, k, "plus", "New Tab", 30, 19).Tooltip(tip("New Tab", &cmdNewTab)).Clicked() {
 				a.newTab(a.currentDir())
 			}
 		})
+		a.windowControls(c, k)
 	})
+}
+
+// windowControls draws the buttons that minimize, maximize and close the
+// window, when it has none of its own: they are the title bar's other
+// buttons, and close's face turns red, as Windows has it.
+func (a *App) windowControls(c *ui.Context, k *colors) {
+	win := a.win
+	if !ownControls || win == nil || win.IsFullScreen() {
+		return
+	}
+	maximized := win.IsMaximized()
+	ui.Row(c).Gap(2).AlignItems(ui.Center).Shrink(0).Children(func() {
+		ui.Box(c).Size(1, 16).Margin(0, 6).Background(k.tabSep)
+		if iconButton(c, k, "minus", "Minimize", 30, 16).Tooltip("Minimize").Clicked() {
+			win.Minimize()
+		}
+		glyph, label := "square", "Maximize"
+		if maximized {
+			glyph, label = "copy", "Restore"
+		}
+		if iconButton(c, k, glyph, label, 30, 13).Tooltip(label).Clicked() {
+			if maximized {
+				win.Unmaximize()
+			} else {
+				win.Maximize()
+			}
+		}
+		b := ui.Box(c).Size(30, 30).Center().Radius(30 / 2.6).Cursor(ui.CursorPointer).Role(ui.RoleButton).Label("Close").Tooltip("Close")
+		col := k.iconMuted
+		if b.Pressed() {
+			b.Background(closeRed.Alpha(0.8))
+			col = ui.Hex("#ffffff")
+		} else if b.Hovered() {
+			b.Background(closeRed)
+			col = ui.Hex("#ffffff")
+		}
+		b.Transition(ui.ElementTransition{Colors: true, Duration: 120 * time.Millisecond})
+		b.Children(func() {
+			ui.Icon(c, icon("x")).Size(17, 17).TextColor(col)
+		})
+		if b.Clicked() {
+			win.Close()
+		}
+	})
+}
+
+// closeRed is the face of the close button under the pointer: Windows 11's.
+var closeRed = ui.Hex("#c42b1c")
+
+// tip is the tooltip of a button that runs a command: its label and its
+// keys.
+func tip(label string, cmd *command) string {
+	if cmd.Keys == "" {
+		return label
+	}
+	return label + "  " + cmd.Keys
 }
 
 // iconButton is a borderless button of an icon, with a face on hover;
@@ -231,23 +293,23 @@ func (a *App) paneHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, hov
 			if !show {
 				return
 			}
-			if iconButton(c, k, "columns-2", "Split Right", 26, 16).Tooltip("Split Right  ⌘D").Clicked() {
+			if iconButton(c, k, "columns-2", "Split Right", 26, 16).Tooltip(tip("Split Right", &cmdSplitRight)).Clicked() {
 				t.setFocus(p)
 				a.split(false)
 			}
-			if iconButton(c, k, "rows-2", "Split Down", 26, 16).Tooltip("Split Down  ⇧⌘D").Clicked() {
+			if iconButton(c, k, "rows-2", "Split Down", 26, 16).Tooltip(tip("Split Down", &cmdSplitDown)).Clicked() {
 				t.setFocus(p)
 				a.split(true)
 			}
-			zoom, tip := "maximize-2", "Zoom  ⇧⌘↩"
+			zoom, label := "maximize-2", "Zoom"
 			if t.Zoom == p {
-				zoom, tip = "minimize-2", "Unzoom  ⇧⌘↩"
+				zoom, label = "minimize-2", "Unzoom"
 			}
-			if iconButton(c, k, zoom, "Zoom", 26, 16).Tooltip(tip).Clicked() {
+			if iconButton(c, k, zoom, "Zoom", 26, 16).Tooltip(tip(label, &cmdZoom)).Clicked() {
 				t.setFocus(p)
 				a.toggleZoom()
 			}
-			if iconButton(c, k, "x", "Close Pane", 26, 17).Tooltip("Close Pane  ⌘W").Clicked() {
+			if iconButton(c, k, "x", "Close Pane", 26, 17).Tooltip(tip("Close Pane", &cmdClosePane)).Clicked() {
 				a.later(c, func() { a.closePane(p) })
 			}
 		})

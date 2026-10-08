@@ -90,7 +90,8 @@ var (
 		"kotlin":    {Name: "Kotlin", Glyph: "brand:kotlin", TileBg: ui.Hex("#7f52ff"), TileFg: ui.Hex("#ffffff")},
 	}
 
-	shells = map[string]bool{"zsh": true, "bash": true, "fish": true, "sh": true, "dash": true, "nu": true, "pwsh": true, "elvish": true, "xonsh": true, "tcsh": true, "csh": true, "ksh": true}
+	shells = map[string]bool{"zsh": true, "bash": true, "fish": true, "sh": true, "dash": true, "nu": true, "pwsh": true, "elvish": true, "xonsh": true, "tcsh": true, "csh": true, "ksh": true,
+		"cmd": true, "powershell": true}
 )
 
 func init() {

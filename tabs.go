@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -202,7 +203,11 @@ func (a *App) tabMenu(m *ui.Menu, t *Tab) {
 		a.moveTab(t, i+1)
 	}
 	m.Separator()
-	if m.Item("New Tab").Shortcut(ui.Cmd, ui.KeyT).Chosen() {
+	mods, key := ui.Cmd, ui.KeyT
+	if runtime.GOOS != "darwin" {
+		mods, key = cmdNewTab.Other.Mods, cmdNewTab.Other.Key
+	}
+	if m.Item("New Tab").Shortcut(mods, key).Chosen() {
 		a.newTab(a.currentDir())
 	}
 	if m.Item("Close Tab").Chosen() {

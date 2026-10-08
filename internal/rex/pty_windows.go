@@ -14,7 +14,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var procUpdateProcThreadAttribute = windows.NewLazySystemDLL("kernel32.dll").NewProc("UpdateProcThreadAttribute")
+var (
+	procUpdateProcThreadAttribute = kernel32.NewProc("UpdateProcThreadAttribute")
+	procSetConsoleCtrlHandler     = kernel32.NewProc("SetConsoleCtrlHandler")
+)
 
 // pty is a pseudo console (ConPTY) and the process it runs.
 type pty struct {
@@ -86,6 +89,10 @@ func (p *pty) spawn(path string, argv []string, dir string, env []string) error 
 		return err
 	}
 	block := environmentBlock(env)
+	// A process ignores Ctrl-C when the one that started it did, as the
+	// server does in a process group of its own: Ctrl-C would interrupt
+	// nothing that runs in its consoles.
+	procSetConsoleCtrlHandler.Call(0, 0)
 	var pi windows.ProcessInformation
 	err = windows.CreateProcess(nil, cmdline, nil, nil, false,
 		windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_UNICODE_ENVIRONMENT,

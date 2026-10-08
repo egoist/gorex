@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -294,5 +295,43 @@ func TestCloseButtons(t *testing.T) {
 	tt.Frame()
 	if ps := tab.panes(); len(ps) != 1 || ps[0] == left {
 		t.Fatalf("%d panes after clicking the left pane's close button", len(ps))
+	}
+}
+
+// TestPaletteScrolls checks that the wheel scrolls a palette longer than
+// it shows, and that the keys bring the selection back into view.
+func TestPaletteScrolls(t *testing.T) {
+	registerFonts()
+	a := &App{}
+	tab := &Tab{ID: 1}
+	for i := range 20 {
+		n := &Node{Pane: &Pane{ID: i, Tab: tab, info: rex.SessionInfo{Shell: fmt.Sprintf("shell%02d", i)}}}
+		n.Pane.Node = n
+		if tab.Root == nil {
+			tab.Root = n
+		} else {
+			tab.Root = &Node{A: tab.Root, B: n, Ratio: 0.5}
+		}
+	}
+	a.tabs = []*Tab{tab}
+	tt := ui.NewTester(func(c *ui.Context) { a.palette(c, colorsOf(c)) }, 1000, 620)
+	a.openPalette()
+	tt.Frame()
+	// A row out of sight finds an empty box.
+	top, _ := tt.Find("shell00")
+	row10, _ := tt.Find("shell10")
+	tt.Move(top.X, top.Y+100)
+	tt.Scroll(top.X, top.Y+100, 0, 300)
+	tt.Frame()
+	if r, _ := tt.Find("shell10"); r.Y != row10.Y-300 {
+		t.Errorf("scrolled 300: a row moved from %v to %v", row10.Y, r.Y)
+	}
+	if r, _ := tt.Find("shell00"); r.H != 0 {
+		t.Errorf("scrolled 300: the first row still shows, at %v", r.Y)
+	}
+	tt.Key(0, ui.KeyDown)
+	tt.Frame()
+	if r, _ := tt.Find("shell01"); r.H == 0 {
+		t.Error("the keys chose a row out of sight")
 	}
 }

@@ -405,6 +405,9 @@ func (a *App) palette(c *ui.Context, k *colors) {
 	items := a.paletteItems()
 	a.paletteSel = min(max(a.paletteSel, 0), max(len(items)-1, 0))
 	was := a.paletteOpen
+	// reveal scrolls the selection into view in the frame the keys or the
+	// query move it, and only then, so that the wheel scrolls the list.
+	reveal := false
 	ui.DialogBase(c, &a.paletteOpen, func(backdrop, panel ui.Element) {
 		backdrop.Background(k.backdrop).Justify(ui.Start).Padding(78, 0, 0, 0)
 		panel.Width(560).MaxHeight(440).Radius(16).Background(k.panel).Border(1, k.panelBorder).
@@ -413,13 +416,13 @@ func (a *App) palette(c *ui.Context, k *colors) {
 			ui.Icon(c, icon("search")).Size(17, 17).TextColor(k.textFaint)
 			in := ui.TextInputBase(c, &a.paletteQuery).Grow(1).FontSize(15).Placeholder("Type a command, or the name of a pane…").AutoFocus()
 			if in.Changed() {
-				a.paletteSel = 0
+				a.paletteSel, reveal = 0, true
 			}
 			if in.Shortcut(0, ui.KeyDown) {
-				a.paletteSel = min(a.paletteSel+1, len(items)-1)
+				a.paletteSel, reveal = min(a.paletteSel+1, len(items)-1), true
 			}
 			if in.Shortcut(0, ui.KeyUp) {
-				a.paletteSel = max(a.paletteSel-1, 0)
+				a.paletteSel, reveal = max(a.paletteSel-1, 0), true
 			}
 			if in.Submitted() && len(items) > 0 {
 				a.paletteOpen = false
@@ -435,7 +438,9 @@ func (a *App) palette(c *ui.Context, k *colors) {
 				row := ui.Row(c.Key(i)).Height(34).Padding(0, 10).Gap(10).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 				if i == a.paletteSel {
 					row.Background(k.panelSel)
-					row.ScrollIntoView()
+					if reveal {
+						row.ScrollIntoView()
+					}
 				} else if row.Hovered() {
 					row.Background(k.hover)
 				}

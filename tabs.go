@@ -71,7 +71,7 @@ const titleFree = 56
 // tabItem draws a tab: the tiles of its panes' programs and its label.
 func (a *App) tabItem(c *ui.Context, k *colors, i int, t *Tab, width float32) {
 	active := i == a.active
-	e := ui.Row(c).Key(t.ID).Height(tabH).Basis(width).Shrink(1).MinWidth(64).
+	e := ui.Row(c.Key(t.ID)).Height(tabH).Basis(width).Shrink(1).MinWidth(64).
 		Padding(0, 10, 0, 6).Gap(9).AlignItems(ui.Center).Radius(tabH / 2).Role(ui.RoleTab).Selected(active)
 	name, detail := t.label()
 	e.Label(name + " " + detail)
@@ -206,10 +206,10 @@ func (a *App) tabMenu(m *ui.Menu, t *Tab) {
 		a.newTab(a.currentDir())
 	}
 	if m.Item("Close Tab").Chosen() {
-		a.later(a.ctx, func() { a.closeTab(t) })
+		a.laterService(func() { a.closeTab(t) })
 	}
 	if m.Item("Close Other Tabs").Disabled(len(a.tabs) < 2).Chosen() {
-		a.later(a.ctx, func() {
+		a.laterService(func() {
 			for _, o := range slices.Clone(a.tabs) {
 				if o != t {
 					a.closeTab(o)

@@ -54,7 +54,7 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
 
 ## Develop and build
 
-GoRex needs [Go](https://go.dev/dl/) 1.27+ and MyGo 0.2.11, whose CLI
+GoRex needs [Go](https://go.dev/dl/) 1.27+ and MyGo 0.3.0, whose CLI
 `go.mod` pins as a tool:
 
 ```sh

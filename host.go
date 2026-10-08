@@ -42,7 +42,7 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 			ui.Text(c, model).FontSize(11.5).TextColor(k.textFaint).SingleLine().Ellipsis("…")
 		})
 	})
-	ui.PopoverBase(c, chip, &a.hostOpen, func(panel *ui.Element) {
+	ui.PopoverBase(c, chip, &a.hostOpen, func(panel ui.Element) {
 		panel.Margin(8, 0, 0, 0).Width(300).Padding(14).Radius(14).Background(k.panel).Border(1, k.panelBorder).
 			Shadow(0, 12, 32, 0, k.shadowFocused).Gap(12)
 		a.hostPanel(c, k, name, glyph)

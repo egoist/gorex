@@ -104,8 +104,8 @@ type App struct {
 	// view without a window, as in tests.
 	postMu sync.Mutex
 	posted []func()
-	// ctx is the context of the view, for the menus it builds.
-	ctx *ui.Context
+	// services keeps redraw requests available to menu callbacks.
+	services ui.Services
 }
 
 func (a *App) post(fn func()) {
@@ -856,3 +856,6 @@ func (a *App) apply(byID map[string]rex.SessionInfo) {
 		a.save()
 	}
 }
+
+// laterService queues a menu action without keeping a build context.
+func (a *App) laterService(fn func()) { a.post(fn); a.services.Invalidate() }

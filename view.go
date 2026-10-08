@@ -17,7 +17,7 @@ const (
 )
 
 func (a *App) view(c *ui.Context) {
-	a.ctx = c
+	a.services = c.Services()
 	a.runPosted()
 	k := colorsOf(c)
 	a.focusedWin = a.win == nil || a.win.IsFocused()
@@ -78,7 +78,7 @@ func (a *App) titleBar(c *ui.Context, k *colors) {
 
 // iconButton is a borderless button of an icon, with a face on hover;
 // label names it for screen readers and its tooltip.
-func iconButton(c *ui.Context, k *colors, name, label string, size, iconSize float32) *ui.Element {
+func iconButton(c *ui.Context, k *colors, name, label string, size, iconSize float32) ui.Element {
 	b := ui.Box(c).Size(size, size).Center().Radius(size / 2.6).Cursor(ui.CursorPointer).Role(ui.RoleButton).Label(label)
 	if b.Pressed() {
 		b.Background(k.pressed)
@@ -106,22 +106,24 @@ func (a *App) tabContent(c *ui.Context, k *colors, t *Tab) {
 }
 
 // node lays out a node of the tree of splits.
-func (a *App) node(c *ui.Context, k *colors, t *Tab, n *Node) *ui.Element {
+func (a *App) node(c *ui.Context, k *colors, t *Tab, n *Node) ui.Element {
 	if n.Pane != nil {
 		return a.paneCard(c, k, t, n.Pane)
 	}
-	box := ui.Row(c)
+	var box ui.Element
 	if n.Vertical {
-		box = ui.Column(c)
+		box = ui.Column(c.Key(n.ID))
+	} else {
+		box = ui.Row(c.Key(n.ID))
 	}
-	box.Key(n.ID).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
+	box.MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
 	bounds := box.Bounds()
 	// The tree may change as its panes build, as a split: build the
 	// children it has now.
 	first, second, ratio := n.A, n.B, n.Ratio
 	box.Children(func() {
 		a.node(c, k, t, first).Grow(ratio).Basis(0).MinWidth(0).MinHeight(0)
-		div := ui.Box(c).Key("divider").Role(ui.RoleSplitter).Label("Divider")
+		div := ui.Box(c.Key("divider")).Role(ui.RoleSplitter).Label("Divider")
 		if n.Vertical {
 			div.Height(gap).Cursor(ui.CursorResizeRow)
 		} else {
@@ -157,9 +159,9 @@ func (a *App) node(c *ui.Context, k *colors, t *Tab, n *Node) *ui.Element {
 }
 
 // paneCard draws a pane: a card with a header over its terminal.
-func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) *ui.Element {
+func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 	focused := t.Focus == p
-	card := ui.Column(c).Key(p.ID).Radius(cardR).Clip().MinWidth(0).MinHeight(0)
+	card := ui.Column(c.Key(p.ID)).Radius(cardR).Clip().MinWidth(0).MinHeight(0)
 	bg, border, shadow := k.card, k.cardBorder, k.shadow
 	if focused {
 		bg, border, shadow = k.cardFocused, k.cardBorderFocused, k.shadowFocused
@@ -291,7 +293,7 @@ func (a *App) activityBadge(c *ui.Context, k *colors, p *Pane) {
 // activityDot is the dot of a program printing: a solid dot in a soft
 // halo. It does not animate, as drawing frames all along would cost more
 // than it tells.
-func activityDot(c *ui.Context, col ui.Color, size float32) *ui.Element {
+func activityDot(c *ui.Context, col ui.Color, size float32) ui.Element {
 	e := ui.Box(c).Size(size+6, size+6).Margin(0, 0, 0, 1).Tooltip("Printing")
 	e.Draw(func(p *ui.Painter, r ui.Rect) {
 		cx, cy := r.X+r.W/2, r.Y+r.H/2

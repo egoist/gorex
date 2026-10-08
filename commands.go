@@ -322,7 +322,7 @@ func (a *App) palette(c *ui.Context, k *colors) {
 	items := a.paletteItems()
 	a.paletteSel = min(max(a.paletteSel, 0), max(len(items)-1, 0))
 	was := a.paletteOpen
-	ui.DialogBase(c, &a.paletteOpen, func(backdrop, panel *ui.Element) {
+	ui.DialogBase(c, &a.paletteOpen, func(backdrop, panel ui.Element) {
 		backdrop.Background(k.backdrop).Justify(ui.Start).Padding(78, 0, 0, 0)
 		panel.Width(560).MaxHeight(440).Radius(16).Background(k.panel).Border(1, k.panelBorder).
 			Shadow(0, 24, 60, -8, ui.RGBA(0, 0, 0, 0.28)).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.06)).Clip()
@@ -349,7 +349,7 @@ func (a *App) palette(c *ui.Context, k *colors) {
 				ui.Text(c, "No matches").FontSize(13).TextColor(k.textFaint).Padding(14)
 			}
 			for i, it := range items {
-				row := ui.Row(c).Key(i).Height(34).Padding(0, 10).Gap(10).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+				row := ui.Row(c.Key(i)).Height(34).Padding(0, 10).Gap(10).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 				if i == a.paletteSel {
 					row.Background(k.panelSel)
 					row.ScrollIntoView()

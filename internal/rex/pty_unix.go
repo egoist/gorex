@@ -16,7 +16,10 @@ import (
 // pty is a pseudo-terminal and the process it runs.
 type pty struct {
 	master *os.File
-	cmd    *exec.Cmd
+	// cmd started the process, proc; it is nil for a process the
+	// executable before this one started (resumePTY).
+	cmd  *exec.Cmd
+	proc int
 }
 
 // startPTY runs argv (argv[0] as the program sees it, path the file) in a
@@ -47,7 +50,19 @@ func startPTY(path string, argv []string, dir string, env []string, cols, rows i
 		master.Close()
 		return nil, err
 	}
-	return &pty{master: master, cmd: cmd}, nil
+	return &pty{master: master, cmd: cmd, proc: cmd.Process.Pid}, nil
+}
+
+// resumePTY takes over the terminal of master, a descriptor the
+// executable before this one left open, and its process pid.
+func resumePTY(master, pid int) (*pty, error) {
+	// Non-blocking, the descriptor goes to the poller, where reads take a
+	// deadline (pause).
+	if err := unix.SetNonblock(master, true); err != nil {
+		return nil, fmt.Errorf("pty: %w", err)
+	}
+	unix.CloseOnExec(master)
+	return &pty{master: os.NewFile(uintptr(master), "/dev/ptmx"), proc: pid}, nil
 }
 
 func (p *pty) read(b []byte) (int, error)  { return p.master.Read(b) }
@@ -55,16 +70,16 @@ func (p *pty) write(b []byte) (int, error) { return p.master.Write(b) }
 
 // close closes the terminal's master: read ends, once it read what the
 // terminal had.
-func (p *pty) close() error { return p.master.Close() }
+func (p *pty) close() error {
+	if p.master == nil {
+		return nil
+	}
+	return p.master.Close()
+}
 
 func (p *pty) resize(cols, rows int) error { return setSize(p.master, cols, rows) }
 
-func (p *pty) pid() int {
-	if p.cmd.Process == nil {
-		return 0
-	}
-	return p.cmd.Process.Pid
-}
+func (p *pty) pid() int { return p.proc }
 
 // kill kills the process group of the session's process.
 func (p *pty) kill() {
@@ -75,14 +90,35 @@ func (p *pty) kill() {
 
 func setSize(f *os.File, cols, rows int) error {
 	ws := &unix.Winsize{Col: uint16(clamp(cols)), Row: uint16(clamp(rows))}
-	return unix.IoctlSetWinsize(int(f.Fd()), unix.TIOCSWINSZ, ws)
+	return control(f, func(fd int) error { return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, ws) })
+}
+
+// control runs fn with the descriptor of f, which Fd would put in
+// blocking mode, where reads take no deadline.
+func control(f *os.File, fn func(fd int) error) error {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var ferr error
+	if err := rc.Control(func(fd uintptr) { ferr = fn(int(fd)) }); err != nil {
+		return err
+	}
+	return ferr
 }
 
 func clamp(v int) int { return max(1, min(v, 0xFFFF)) }
 
 // foreground returns the process group in the foreground of the terminal.
 func (p *pty) foreground() int {
-	pg, err := unix.IoctlGetInt(int(p.master.Fd()), unix.TIOCGPGRP)
+	if p.master == nil {
+		return 0
+	}
+	pg := 0
+	err := control(p.master, func(fd int) (err error) {
+		pg, err = unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+		return err
+	})
 	if err != nil {
 		return 0
 	}
@@ -92,6 +128,21 @@ func (p *pty) foreground() int {
 // wait waits for the process and returns its exit code, 128 plus the
 // signal's number for a process a signal ended.
 func (p *pty) wait() int {
+	if p.cmd == nil {
+		// Still this process's child, which it waits for by its pid.
+		var ws unix.WaitStatus
+		_, err := unix.Wait4(p.proc, &ws, 0, nil)
+		for err == unix.EINTR {
+			_, err = unix.Wait4(p.proc, &ws, 0, nil)
+		}
+		switch {
+		case err != nil:
+			return -1
+		case ws.Signaled():
+			return 128 + int(ws.Signal())
+		}
+		return ws.ExitStatus()
+	}
 	err := p.cmd.Wait()
 	if e, ok := errors.AsType[*exec.ExitError](err); ok {
 		if ws, ok := e.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
@@ -108,13 +159,13 @@ func (p *pty) wait() int {
 // hangup ends the session: its processes get SIGHUP, as when a terminal
 // window closes.
 func (p *pty) hangup() {
-	if p.cmd.Process != nil {
-		syscall.Kill(-p.cmd.Process.Pid, syscall.SIGHUP)
+	if p.proc > 0 {
+		syscall.Kill(-p.proc, syscall.SIGHUP)
 		if pg := p.foreground(); pg > 0 {
 			syscall.Kill(-pg, syscall.SIGHUP)
 		}
 	}
-	p.master.Close()
+	p.close()
 }
 
 // shellCommand returns the program, its arguments and the shell's name

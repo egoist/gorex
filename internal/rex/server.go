@@ -31,6 +31,7 @@ type Server struct {
 	host     HostInfo
 	hostDone chan struct{}
 	ln       net.Listener
+	lock     *os.File
 	exe      string
 	exeTime  time.Time
 	controls int
@@ -38,6 +39,10 @@ type Server struct {
 	quit     chan struct{}
 	quitOnce sync.Once
 	rem      remote
+	// ops is held by the ops that add or end sessions, and an upgrade
+	// takes it alone; acceptMu holds Accept while an upgrade stops it.
+	ops      sync.RWMutex
+	acceptMu sync.Mutex
 }
 
 // idleTimeout is how long a server with no sessions and no app waits
@@ -66,14 +71,25 @@ func Serve() error {
 		return err
 	}
 	os.Chmod(sock, 0o600)
-	s := &Server{
-		sessions: map[string]*session{}, started: time.Now(), ln: ln,
-		hostDone: make(chan struct{}), idleFrom: time.Now(), quit: make(chan struct{}),
-	}
+	s := newServer(ln, lock)
 	if b, err := os.ReadFile(filepath.Join(dir, "layout.json")); err == nil && json.Valid(b) {
 		s.layout = b
 	}
+	return s.serve()
+}
+
+func newServer(ln net.Listener, lock *os.File) *Server {
+	s := &Server{
+		sessions: map[string]*session{}, started: time.Now(), ln: ln, lock: lock,
+		hostDone: make(chan struct{}), idleFrom: time.Now(), quit: make(chan struct{}),
+	}
 	s.exe, s.exeTime = Executable()
+	return s
+}
+
+// serve accepts connections until the server is shut down.
+func (s *Server) serve() error {
+	ln, sock := s.ln, SocketPath()
 	go func() {
 		s.host = hostInfo()
 		close(s.hostDone)
@@ -105,6 +121,9 @@ func Serve() error {
 			default:
 			}
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				// An upgrade stopped it: wait for it to fail.
+				s.acceptMu.Lock()
+				s.acceptMu.Unlock()
 				continue
 			}
 			return err
@@ -292,7 +311,7 @@ func (s *Server) do(req Request) (any, error) {
 		case <-s.hostDone:
 		case <-time.After(3 * time.Second):
 		}
-		return Hello{Version: ProtocolVersion, PID: os.Getpid(), Started: s.started, Host: s.host, Exe: s.exe, ExeTime: s.exeTime}, nil
+		return Hello{Version: ProtocolVersion, PID: os.Getpid(), Started: s.started, Host: s.host, Exe: s.exe, ExeTime: s.exeTime, Upgrade: canUpgrade}, nil
 	case "list":
 		s.mu.Lock()
 		all := make([]*session, 0, len(s.order))
@@ -306,6 +325,8 @@ func (s *Server) do(req Request) (any, error) {
 		}
 		return infos, nil
 	case "create":
+		s.ops.RLock()
+		defer s.ops.RUnlock()
 		o := CreateOptions{}
 		if req.Create != nil {
 			o = *req.Create
@@ -321,6 +342,8 @@ func (s *Server) do(req Request) (any, error) {
 		s.mu.Unlock()
 		return ss.info(), nil
 	case "kill":
+		s.ops.RLock()
+		defer s.ops.RUnlock()
 		ss, err := s.session(req.SID)
 		if err != nil {
 			return nil, nil // already gone
@@ -363,6 +386,9 @@ func (s *Server) do(req Request) (any, error) {
 			os.Rename(tmp, path)
 		}
 		return nil, nil
+	case "upgrade":
+		// Once it runs, the connection closes with this executable.
+		return nil, s.upgrade(req.Exe)
 	case "shutdown":
 		go func() {
 			time.Sleep(50 * time.Millisecond)

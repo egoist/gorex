@@ -9,6 +9,10 @@ var errUnsupported = errors.New("rex: the session server runs on macOS, Linux an
 // Serve runs the server; not on this platform.
 func Serve() error { return errUnsupported }
 
+// Resume serves the sessions of an upgrading server; not on this
+// platform.
+func Resume(string) error { return errUnsupported }
+
 // Spawn starts a server; not on this platform.
 func Spawn() error { return errUnsupported }
 

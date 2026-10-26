@@ -27,9 +27,15 @@ func openMaster() (*os.File, string, error) {
 		req uintptr
 		arg unsafe.Pointer
 	}{{tiocptygrant, nil}, {tiocptyunlk, nil}, {tiocptygname, unsafe.Pointer(&name[0])}} {
-		if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), step.req, uintptr(step.arg)); e != 0 {
+		err := control(master, func(fd int) error {
+			if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), step.req, uintptr(step.arg)); e != 0 {
+				return e
+			}
+			return nil
+		})
+		if err != nil {
 			master.Close()
-			return nil, "", fmt.Errorf("pty: %w", e)
+			return nil, "", fmt.Errorf("pty: %w", err)
 		}
 	}
 	n := bytes.IndexByte(name[:], 0)

@@ -30,6 +30,8 @@ type Request struct {
 	Layout json.RawMessage `json:"layout,omitempty"`
 	// Remote is the client of remote.allow and remote.revoke.
 	Remote *RemoteClient `json:"remote,omitempty"`
+	// Exe is the executable the server runs in its place on "upgrade".
+	Exe string `json:"exe,omitempty"`
 }
 
 // RemoteClient is a client allowed to connect remotely: PublicKey is its
@@ -99,10 +101,13 @@ type Hello struct {
 	Started time.Time `json:"started"`
 	Host    HostInfo  `json:"host"`
 	// Exe is the server's executable, and ExeTime when it was modified
-	// last as the server started: a development build compares them with
-	// its own, to replace a server of an older build.
+	// last as the server started: the app compares them with its own, to
+	// upgrade a server of an older build.
 	Exe     string    `json:"exe,omitempty"`
 	ExeTime time.Time `json:"exeTime,omitzero"`
+	// Upgrade tells that the server can run another executable in its
+	// place, keeping its sessions (Client.Upgrade).
+	Upgrade bool `json:"upgrade,omitempty"`
 }
 
 // HostInfo describes the machine the server runs on.

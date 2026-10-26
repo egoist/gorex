@@ -65,6 +65,12 @@ func Executable() (string, time.Time) {
 	if err != nil {
 		return "", time.Time{}
 	}
+	return executable(exe)
+}
+
+// executable returns the path of the executable exe, its links
+// followed, and when it was modified last.
+func executable(exe string) (string, time.Time) {
 	if p, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = p
 	}
@@ -85,6 +91,42 @@ func (c *Client) Restart(pid int) (*Client, error) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	return Connect()
+}
+
+// Upgrade has the server run exe in its place, keeping its sessions,
+// and connects to it again once it runs it (Hello.Upgrade tells a server
+// that can). On an error from the server, c stays connected to it.
+func (c *Client) Upgrade(exe string) (*Client, error) {
+	want, at := executable(exe)
+	err := c.call(Request{Op: "upgrade", Exe: exe}, nil)
+	c.mu.Lock()
+	lost := c.err != nil // the connection closed as the server ran exe
+	c.mu.Unlock()
+	if !lost {
+		if err == nil {
+			err = errors.New("rex: the server did not upgrade")
+		}
+		return nil, err
+	}
+	c.Close()
+	// Not Connect, which would start a server: the listener is the old
+	// server's, and the new executable answers what it queued.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		conn, err := net.Dial("unix", SocketPath())
+		if err == nil {
+			nc := newClient(conn, func() (net.Conn, error) { return net.Dial("unix", SocketPath()) })
+			h, err := nc.Hello()
+			if err == nil && h.Exe == want && h.ExeTime.Equal(at) {
+				return nc, nil
+			}
+			nc.Close()
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("rex: the server did not come back as %s", exe)
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
 }
 
 // Closed is closed once the connection to the server is lost.

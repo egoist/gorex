@@ -22,11 +22,16 @@ import (
 )
 
 func main() {
-	// -server runs the session server; other arguments are AppKit's, as
-	// -NSWindowResizeTime, which it reads itself.
+	// -server runs the session server, and -server -resume the one a
+	// server of another build upgraded to this one; other arguments are
+	// AppKit's, as -NSWindowResizeTime, which it reads itself.
 	if len(os.Args) > 1 && os.Args[1] == "-server" {
 		log.SetPrefix("[server] ")
-		if err := rex.Serve(); err != nil {
+		serve := rex.Serve
+		if len(os.Args) > 3 && os.Args[2] == "-resume" {
+			serve = func() error { return rex.Resume(os.Args[3]) }
+		}
+		if err := serve(); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -74,17 +79,31 @@ func (a *App) open() {
 	}
 	a.client = client
 	a.hello, err = client.Hello()
-	if err == nil && mygo.IsDev() && staleServer(a.hello) {
+	if err == nil && staleServer(a.hello) {
 		// A server a build before this one started runs that build's
-		// code: start one of this build's, ending its sessions.
-		if client, err = client.Restart(a.hello.PID); err == nil {
-			a.client = client
-			a.hello, err = client.Hello()
-		} else {
+		// code: it runs this build's in its place, keeping its sessions.
+		// One that cannot is replaced under mygo dev, ending its sessions,
+		// and kept otherwise.
+		var next *rex.Client
+		if a.hello.Upgrade {
+			exe, _ := rex.Executable()
+			if next, err = client.Upgrade(exe); err != nil {
+				log.Print(err)
+				client.Close()
+				next, err = rex.Connect()
+			}
+		} else if mygo.IsDev() {
+			next, err = client.Restart(a.hello.PID)
+		}
+		if err != nil {
 			log.Print(err)
 			mygo.Dialog.Error("GoRex could not restart its session server", err.Error())
 			mygo.App.Quit()
 			return
+		}
+		if next != nil {
+			client, a.client = next, next
+			a.hello, err = client.Hello()
 		}
 	}
 	if err == nil && a.hello.Version != rex.ProtocolVersion {
@@ -162,7 +181,7 @@ func (a *App) reset() {
 }
 
 // staleServer reports whether the server runs another build of the app
-// than this one, as after mygo dev rebuilt it.
+// than this one, as after an update or after mygo dev rebuilt it.
 func staleServer(h rex.Hello) bool {
 	exe, at := rex.Executable()
 	return h.Exe != exe || !h.ExeTime.Equal(at)

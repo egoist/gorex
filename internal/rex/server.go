@@ -268,7 +268,7 @@ func (s *Server) handle(conn net.Conn, remote bool) {
 		// What the reader buffered past the first line is input.
 		if n := r.Buffered(); n > 0 {
 			b, _ := r.Peek(n)
-			ss.input(b)
+			ss.input(nil, b)
 		}
 		ss.attach(conn, remote)
 		return

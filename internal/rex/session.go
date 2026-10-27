@@ -31,11 +31,14 @@ type session struct {
 	// vt is the session's screen, kept by the terminal emulator of the
 	// app's terminals without a view: a window attaching gets a snapshot
 	// of it at its size, as the session shows it now.
-	vt         *terminal.Terminal
-	vtIn       *io.PipeWriter
-	output     uint64
-	bells      atomic.Int64
-	clients    map[*attached]struct{}
+	vt      *terminal.Terminal
+	vtIn    *io.PipeWriter
+	output  uint64
+	bells   atomic.Int64
+	clients map[*attached]struct{}
+	// typist is the window typed in last: with several windows attached,
+	// only its terminal answers the program's queries.
+	typist     *attached
 	lastOutput time.Time
 	lastInput  time.Time
 	resync     *time.Timer
@@ -359,7 +362,7 @@ func (s *session) attach(conn net.Conn, remote bool) {
 	for {
 		n, err := conn.Read(buf)
 		if n > 0 {
-			s.input(buf[:n])
+			s.input(a, buf[:n])
 		}
 		if err != nil {
 			break
@@ -370,17 +373,99 @@ func (s *session) attach(conn net.Conn, remote bool) {
 		delete(s.clients, a)
 		a.finish()
 	}
+	if s.typist == a {
+		s.typist = nil
+	}
 	s.mu.Unlock()
 }
 
-func (s *session) input(p []byte) {
+// input types what window a sent; a is nil for what came with the
+// attach request. Every window's terminal answers a program's queries
+// (background colour, cursor position…): the program reads one answer,
+// and the others would land on the shell's prompt. So answers count from
+// the window typed in last only, or, none being, from the first to answer.
+func (s *session) input(a *attached, p []byte) {
 	s.mu.Lock()
+	if !s.takes(a, p) {
+		s.mu.Unlock()
+		return
+	}
 	s.lastInput = time.Now()
 	exited := s.exited
 	s.mu.Unlock()
 	if !exited {
 		s.p.write(p)
 	}
+}
+
+// takes tells whether input from a goes to the program; s.mu is held.
+func (s *session) takes(a *attached, p []byte) bool {
+	if a == nil {
+		return true
+	}
+	if !isReply(p) || s.typist == nil {
+		s.typist = a
+	}
+	return s.typist == a
+}
+
+// isReply tells input made of a terminal's answers to queries only: OSC,
+// DCS and APC strings, and the CSI reports (cursor position, device
+// attributes, status, modes, window size, keyboard flags). Keys and mouse
+// make none of them, but for a modified F3, alike a cursor position.
+// ponytail: a terminal writes each answer at once, but a network may join
+// one to keys; joined, it counts as typing and passes.
+func isReply(p []byte) bool {
+	if len(p) == 0 {
+		return false
+	}
+	for len(p) > 0 {
+		if len(p) < 3 || p[0] != 0x1b {
+			return false
+		}
+		switch p[1] {
+		case ']', 'P', '_':
+			n := stringEnd(p[2:])
+			if n < 0 {
+				return false
+			}
+			p = p[2+n:]
+		case '[':
+			i := 2
+			for i < len(p) && p[i] >= 0x20 && p[i] <= 0x3f {
+				i++
+			}
+			if i == len(p) {
+				return false
+			}
+			params, final := p[2:i], p[i]
+			switch {
+			case final == 'R' || final == 'c' || final == 'n' || final == 't':
+			case final == 'y' && bytes.HasSuffix(params, []byte("$")):
+			case final == 'u' && bytes.HasPrefix(params, []byte("?")):
+			default:
+				return false
+			}
+			p = p[i+1:]
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// stringEnd returns the length of a string's body with its terminator,
+// BEL or ST, or -1 without one.
+func stringEnd(p []byte) int {
+	for i, c := range p {
+		if c == 0x07 {
+			return i + 1
+		}
+		if c == 0x1b && i+1 < len(p) && p[i+1] == '\\' {
+			return i + 2
+		}
+	}
+	return -1
 }
 
 // resize sets the size of the terminal and reports whether it changed.

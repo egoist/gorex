@@ -28,22 +28,30 @@ type Client struct {
 // Connect connects to the server, starting one in the background when
 // none runs.
 func Connect() (*Client, error) {
+	if c, err := Dial(); err == nil {
+		return c, nil
+	}
+	if err := Spawn(); err != nil {
+		return nil, fmt.Errorf("rex: starting the server: %w", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		time.Sleep(30 * time.Millisecond)
+		c, err := Dial()
+		if err == nil {
+			return c, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("rex: connecting to the server: %w", err)
+		}
+	}
+}
+
+// Dial connects to the server that runs, without starting one.
+func Dial() (*Client, error) {
 	conn, err := net.Dial("unix", SocketPath())
 	if err != nil {
-		if err := Spawn(); err != nil {
-			return nil, fmt.Errorf("rex: starting the server: %w", err)
-		}
-		deadline := time.Now().Add(5 * time.Second)
-		for {
-			time.Sleep(30 * time.Millisecond)
-			conn, err = net.Dial("unix", SocketPath())
-			if err == nil {
-				break
-			}
-			if time.Now().After(deadline) {
-				return nil, fmt.Errorf("rex: connecting to the server: %w", err)
-			}
-		}
+		return nil, err
 	}
 	c := &Client{conn: conn, pending: map[int64]chan Response{}, closed: make(chan struct{})}
 	go c.read()

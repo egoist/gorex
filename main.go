@@ -23,7 +23,7 @@ import (
 func main() {
 	// -server runs the session server; other arguments are AppKit's, as
 	// -NSWindowResizeTime, which it reads itself.
-	if len(os.Args) > 1 && os.Args[1] == "-server" {
+	if hasFlag("server") {
 		log.SetPrefix("[server] ")
 		if err := rex.Serve(); err != nil {
 			log.Fatal(err)
@@ -37,6 +37,11 @@ func main() {
 		if dir, err := mygo.App.Path(mygo.PathUserData); err == nil {
 			os.Setenv("GOREX_DIR", dir)
 		}
+	}
+	// -stop stops the server that runs, ending every program in its
+	// sessions, as Rex's "rex server stop" does.
+	if hasFlag("stop") {
+		os.Exit(stopServer())
 	}
 	registerFonts()
 	loadSettings()
@@ -163,4 +168,34 @@ func (a *App) reset() {
 func staleServer(h rex.Hello) bool {
 	exe, at := rex.Executable()
 	return h.Exe != exe || !h.ExeTime.Equal(at)
+}
+
+// stopServer stops the server and waits for it to go, returning the exit
+// status: 4, as Rex's, when no server runs.
+func stopServer() int {
+	c, err := rex.Dial()
+	if err != nil {
+		log.Print("rex: no server runs")
+		return 4
+	}
+	if err := c.Shutdown(); err != nil {
+		log.Print(err)
+		return 1
+	}
+	c.Close()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		c, err := rex.Dial()
+		if err != nil {
+			return 0
+		}
+		c.Close()
+	}
+	log.Print("rex: the server did not stop")
+	return 1
+}
+
+// hasFlag reports whether the first argument is -name or --name. The
+// flag package isn't used, as it would reject AppKit's arguments.
+func hasFlag(name string) bool {
+	return len(os.Args) > 1 && (os.Args[1] == "-"+name || os.Args[1] == "--"+name)
 }
